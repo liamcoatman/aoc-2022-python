@@ -50,9 +50,12 @@ def part_2(input_: str) -> int:
 
 def main():
     assert part_1(TEST_INPUT) == 157
+    assert part_2(TEST_INPUT) == 70
     with open("03-input.txt") as fp:
-        print(part_1(fp.read()))
-    part_2(TEST_INPUT)
+        text = fp.read()
+        print("part 1", part_1(text))
+        print("part 2", part_2(text))
+
 
 if __name__ == "__main__":
     main()
