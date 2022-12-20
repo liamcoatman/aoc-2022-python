@@ -1,11 +1,8 @@
-from __future__ import annotations
-
 import re
-from collections.abc import Iterator
-from dataclasses import dataclass 
-from typing import Iterable, TypeAlias
+from dataclasses import dataclass
+from operator import attrgetter
 
-import tqdm
+NUMBER_PATTERN = re.compile(r"-?\d+")
 
 TEST_INPUT = """\
 Sensor at x=2, y=18: closest beacon is at x=-2, y=15
@@ -23,18 +20,23 @@ Sensor at x=16, y=7: closest beacon is at x=15, y=3
 Sensor at x=14, y=3: closest beacon is at x=15, y=3
 Sensor at x=20, y=1: closest beacon is at x=15, y=3"""
 
-
 @dataclass(frozen=True)
-class Point:
+class Point: 
     x: int
     y: int
 
-    def __lt__(self, other: Point) -> bool:
-        if self.x < other.x:
-            return True
-        elif self.x == other.x:
-            return self.y < other.y
-        return False
+
+@dataclass(frozen=True) 
+class Interval:
+    start: int
+    end: int
+
+    @property
+    def size(self) -> int:
+        return self.end - self.start + 1 
+
+    def contains(self, val: int) -> bool:
+        return self.start <= val <= self.end 
 
 
 @dataclass
@@ -47,53 +49,63 @@ class Sensor:
         return distance(self.position, self.beacon)
 
 
-Interval: TypeAlias = tuple[int, int]
-
-
 def distance(first: Point, second: Point) -> int:
     return abs(first.x - second.x) + abs(first.y - second.y)
 
 
-
-def parse_input(input_: str) -> Iterator[Sensor]:
+def parse_input(input_: str) -> list[Sensor]:
+    sensors = []
     for line in input_.strip().splitlines():
-        x1, y1, x2, y2 = map(int, re.findall(r"-?\d+", line))
-        yield Sensor(Point(x1, y1), Point(x2, y2))
+        x1, y1, x2, y2 = map(int, NUMBER_PATTERN.findall(line))
+        sensors.append(Sensor(Point(x1, y1), Point(x2, y2)))
+    return sensors
 
 
-def unallowable_columns(sensors: Iterable[Sensor], row: int) -> set[int]:
-    unallowable_intervals: list[Interval] = []
-    for sensor in sensors:
+def blocked_columns(sensor: Sensor, row: int) -> Interval | None:
+    x_dist = sensor.distance_to_beacon - abs(sensor.position.y - row)
+    left = sensor.position.x - x_dist
+    right = sensor.position.x + x_dist
+    if left <= right:
+        return Interval(left, right)
+    return None
 
-        dist_from_row = abs(sensor.position.y - row)
-        remaining = sensor.distance_to_beacon - dist_from_row
 
-        if remaining < 0:
-            continue
+def merge_intervals(intervals: list[Interval | None]) -> list[Interval]:
+    filtered_intervals = list(filter(None, intervals))
+    sorted_intervals = sorted(filtered_intervals, key=attrgetter("start"))
+    new_intervals = [sorted_intervals[0]]
+    for interval in sorted_intervals[1:]:
+        prev = new_intervals[-1]
+        if prev.end < interval.start:
+            new_intervals.append(interval)
         else:
-            low = sensor.position.x - remaining
-            high = sensor.position.x + remaining
-
-            if Point(low, row) == sensor.beacon:
-                low += 1
-            elif Point(high, row) == sensor.beacon:
-                high -= 1
-
-            if low <= high:
-                unallowable_intervals.append((low, high))
-    
-    return set.union(*[set(range(low, high + 1)) for low, high in unallowable_intervals])
+            new_intervals[-1] = Interval(prev.start, max(prev.end, interval.end))
+    return new_intervals
 
 
-def part_1(input_: str, row: int) -> int:
+def is_in(val: int, intervals: list[Interval]) -> bool:
+    return any(interval.contains(val) for interval in intervals)
+
+
+def part_1(input_: str, row: int):
     sensors = parse_input(input_)
-    return len(unallowable_columns(sensors, row))
+    sensor_positions = {sensor.position for sensor in sensors}
+    beacon_positions = {sensor.beacon for sensor in sensors}
+    intervals = [
+        blocked_columns(sensor, row) for sensor in sensors
+    ]
+    intervals = merge_intervals(intervals)
+    already_occupied_count = sum(
+        is_in(position.x, intervals) for position in sensor_positions if position.y == row
+    ) + sum(is_in(position.x, intervals) for position in beacon_positions if position.y == row)
+    
+    return sum(interval.size for interval in intervals) - already_occupied_count
 
 
 def main():
     assert part_1(TEST_INPUT, 10) == 26
     with open("15-input.txt") as fp:
-        print("part 1", part_1(fp.read(), 2000000))
+        print("part 1", part_1(fp.read(), 2_000_000))
 
 
 if __name__ == "__main__":
